@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.0;
 
-import {ERC20} from "./utils/ERC20.sol";
+//import {ERC20} from "./utils/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Lib} from "./utils/ERC20Lib.sol"; 
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
 import '@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol';
@@ -10,8 +12,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// @notice Minimal ERC4626 tokenized Vault implementation.
 /// @author Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/mixins/ERC4626.sol)
- contract Vault is ERC20  {
-    using SafeTransferLib for ERC20;
+ contract Vault is ERC20Lib  {
+    using SafeTransferLib for ERC20Lib;
     using FixedPointMathLib for uint256;
 
     /*//////////////////////////////////////////////////////////////
@@ -32,22 +34,22 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
                                IMMUTABLES
     //////////////////////////////////////////////////////////////*/
 
-    ERC20 public immutable asset;
+    ERC20 public asset;
     
     // string  name;
     // string  symbol;
-    constructor(
+    // constructor(
         
-        ERC20 _asset,
-        string memory _name,
-        string memory _symbol
-    ) ERC20(_name, _symbol, _asset.decimals()) {
-        asset = _asset;
-    }
+    //     ERC20 _asset,
+    //     string memory _name,
+    //     string memory _symbol
+    // ) ERC20Lib(_name, _symbol, _asset.decimals()) {
+    //     asset = _asset;
+    // }
 
-     function initialize(string memory _name, string memory _symbol)  public {
-        name =_name;
-        symbol= _symbol;
+     function initialize(ERC20 _asset)  public {
+        asset=_asset;
+      
 
     }
 
@@ -61,7 +63,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         require((shares = previewDeposit(assets)) != 0, "ZERO_SHARES");
 
         // Need to transfer before minting or ERC777s could reenter.
-        asset.safeTransferFrom(msg.sender, address(this), assets);
+        asset.transferFrom(msg.sender, address(this), assets);
 
         _mint(receiver, shares);
 
@@ -74,7 +76,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         assets = previewMint(shares); // No need to check for rounding error, previewMint rounds up.
 
         // Need to transfer before minting or ERC777s could reenter.
-        asset.safeTransferFrom(msg.sender, address(this), assets);
+        asset.transferFrom(msg.sender, address(this), assets);
 
         _mint(receiver, shares);
 
@@ -91,9 +93,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         shares = previewWithdraw(assets); // No need to check for rounding error, previewWithdraw rounds up.
 
         if (msg.sender != owner) {
-            uint256 allowed = allowance[owner][msg.sender]; // Saves gas for limited approvals.
+            uint256 allowed = _allowances[owner][msg.sender]; // Saves gas for limited approvals.
 
-            if (allowed != type(uint256).max) allowance[owner][msg.sender] = allowed - shares;
+            if (allowed != type(uint256).max) _allowances[owner][msg.sender] = allowed - shares;
         }
 
         beforeWithdraw(assets, shares);
@@ -102,7 +104,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
 
-        asset.safeTransfer(receiver, assets);
+        asset.transfer(receiver, assets);
     }
 
     function redeem(
@@ -111,9 +113,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         address owner
     ) public virtual returns (uint256 assets) {
         if (msg.sender != owner) {
-            uint256 allowed = allowance[owner][msg.sender]; // Saves gas for limited approvals.
+            uint256 allowed = _allowances[owner][msg.sender]; // Saves gas for limited approvals.
 
-            if (allowed != type(uint256).max) allowance[owner][msg.sender] = allowed - shares;
+            if (allowed != type(uint256).max) _allowances[owner][msg.sender] = allowed - shares;
         }
 
         // Check for rounding error since we round down in previewRedeem.
@@ -125,7 +127,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
 
-        asset.safeTransfer(receiver, assets);
+        asset.transfer(receiver, assets);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -179,11 +181,11 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
     }
 
     function maxWithdraw(address owner) public view virtual returns (uint256) {
-        return convertToAssets(balanceOf[owner]);
+        return convertToAssets(balanceOf(owner));
     }
 
     function maxRedeem(address owner) public view virtual returns (uint256) {
-        return balanceOf[owner];
+        return balanceOf(owner);
     }
 
     /*//////////////////////////////////////////////////////////////
