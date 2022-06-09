@@ -12,10 +12,12 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 // EIP-4626: Tokenized Vault Standard
 
-contract Vault is ERC20Lib , ReentrancyGuard {
+contract Vault is ERC20Lib , ReentrancyGuard  {
     using SafeERC20 for ERC20Lib;
     using SafeERC20 for ERC20;
     using FixedPointMathLib for uint256;
+
+
 
     event Deposit(
         address indexed caller,
@@ -42,14 +44,16 @@ contract Vault is ERC20Lib , ReentrancyGuard {
 
     // deposit underlying asset to the contract and mint same shares as assets
     function deposit(uint256 assets, address receiver)
-        public
-        virtual
+        
+        external
+        
         returns (uint256 shares)
     {
         // Check for rounding error since we round down in previewDeposit.
         require((shares = previewDeposit(assets)) != 0, "ZERO_SHARES");
 
         // Need to transfer before minting or ERC777s could reenter.
+        IERC20(asset).approve(address(this),assets);
         asset.safeTransferFrom(msg.sender, address(this), assets);
 
         _mint(receiver, shares);
@@ -219,6 +223,8 @@ contract Vault is ERC20Lib , ReentrancyGuard {
     function beforeWithdraw(uint256 assets, uint256 shares) internal virtual {}
 
     function afterDeposit(uint256 assets, uint256 shares) internal virtual {}
+
+     receive() external payable {}
 
     // function earn() public {  }
 }
