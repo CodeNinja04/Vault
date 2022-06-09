@@ -70,7 +70,7 @@ function depositVault(uint256 _amount,address receiver, uint256 _pid) public  pa
 
     ERC20(IERC4626(getVault[_pid]).asset()).approve(receiver,_amount);
     ERC20(IERC4626(getVault[_pid]).asset()).approve(address(this),_amount);
-    IERC4626(getVault[_pid]).approve(receiver,_amount);
+    
     console.log("asset",IERC4626(getVault[_pid]).asset());
     console.log("Symbol",IERC4626(getVault[_pid]).symbol());
 
