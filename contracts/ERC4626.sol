@@ -1,26 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.0;
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Lib} from "./utils/ERC20Lib.sol";
 
-//import {ERC20} from "./utils/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Lib} from "./utils/ERC20Lib.sol"; 
-import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
-import '@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol';
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-/// @notice Minimal ERC4626 tokenized Vault implementation.
-/// @author Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/mixins/ERC4626.sol)
- contract Vault is ERC20Lib  {
-    using SafeTransferLib for ERC20Lib;
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+// EIP-4626: Tokenized Vault Standard
+
+contract Vault is ERC20Lib , ReentrancyGuard {
+    using SafeERC20 for ERC20Lib;
+    using SafeERC20 for ERC20;
     using FixedPointMathLib for uint256;
 
-    /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
+    event Deposit(
+        address indexed caller,
+        address indexed owner,
+        uint256 assets,
+        uint256 shares
+    );
 
     event Withdraw(
         address indexed caller,
@@ -30,40 +32,25 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         uint256 shares
     );
 
-    /*//////////////////////////////////////////////////////////////
-                               IMMUTABLES
-    //////////////////////////////////////////////////////////////*/
-
+    // underlying token managed by the Vault
     ERC20 public asset;
-    
-    // string  name;
-    // string  symbol;
-    // constructor(
-        
-    //     ERC20 _asset,
-    //     string memory _name,
-    //     string memory _symbol
-    // ) ERC20Lib(_name, _symbol, _asset.decimals()) {
-    //     asset = _asset;
-    // }
 
-     function initialize(ERC20 _asset)  public {
-        asset=_asset;
-      
-
+    // initialize function used in factory to set underlying asset token
+    function initialize(ERC20 _asset) public {
+        asset = _asset;
     }
 
-
-    /*//////////////////////////////////////////////////////////////
-                        DEPOSIT/WITHDRAWAL LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    function deposit(uint256 assets, address receiver) public virtual returns (uint256 shares) {
+    // deposit underlying asset to the contract and mint same shares as assets
+    function deposit(uint256 assets, address receiver)
+        public
+        virtual
+        returns (uint256 shares)
+    {
         // Check for rounding error since we round down in previewDeposit.
         require((shares = previewDeposit(assets)) != 0, "ZERO_SHARES");
 
         // Need to transfer before minting or ERC777s could reenter.
-        asset.transferFrom(msg.sender, address(this), assets);
+        asset.safeTransferFrom(msg.sender, address(this), assets);
 
         _mint(receiver, shares);
 
@@ -72,11 +59,16 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         afterDeposit(assets, shares);
     }
 
-    function mint(uint256 shares, address receiver) public virtual returns (uint256 assets) {
+    // mint shares
+    function mint(uint256 shares, address receiver)
+        public
+        virtual
+        returns (uint256 assets)
+    {
         assets = previewMint(shares); // No need to check for rounding error, previewMint rounds up.
 
         // Need to transfer before minting or ERC777s could reenter.
-        asset.transferFrom(msg.sender, address(this), assets);
+        asset.safeTransferFrom(msg.sender, address(this), assets);
 
         _mint(receiver, shares);
 
@@ -85,6 +77,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         afterDeposit(assets, shares);
     }
 
+    // Burns shares from owner and sends exactly assets of underlying tokens to receiver.
     function withdraw(
         uint256 assets,
         address receiver,
@@ -95,7 +88,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         if (msg.sender != owner) {
             uint256 allowed = _allowances[owner][msg.sender]; // Saves gas for limited approvals.
 
-            if (allowed != type(uint256).max) _allowances[owner][msg.sender] = allowed - shares;
+            if (allowed != type(uint256).max)
+                _allowances[owner][msg.sender] = allowed - shares;
         }
 
         beforeWithdraw(assets, shares);
@@ -107,6 +101,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         asset.transfer(receiver, assets);
     }
 
+    // Burns exactly shares from owner and sends assets of underlying tokens to receiver.
     function redeem(
         uint256 shares,
         address receiver,
@@ -115,7 +110,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         if (msg.sender != owner) {
             uint256 allowed = _allowances[owner][msg.sender]; // Saves gas for limited approvals.
 
-            if (allowed != type(uint256).max) _allowances[owner][msg.sender] = allowed - shares;
+            if (allowed != type(uint256).max)
+                _allowances[owner][msg.sender] = allowed - shares;
         }
 
         // Check for rounding error since we round down in previewRedeem.
@@ -130,47 +126,77 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         asset.transfer(receiver, assets);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                            ACCOUNTING LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    //function asset.totalSupply public view virtual returns (uint256);
-
-    function convertToShares(uint256 assets) public view virtual returns (uint256) {
+    // amount of shares that the Vault would exchange for the amount of assets provided
+    function convertToShares(uint256 assets)
+        public
+        view
+        virtual
+        returns (uint256)
+    {
         uint256 supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
-        return supply == 0 ? assets : assets.mulDivDown(supply, asset.totalSupply());
+        return
+            supply == 0
+                ? assets
+                : assets.mulDivDown(supply, asset.totalSupply());
     }
 
-    function convertToAssets(uint256 shares) public view virtual returns (uint256) {
+    //amount of assets that the Vault would exchange for the amount of shares provided
+    function convertToAssets(uint256 shares)
+        public
+        view
+        virtual
+        returns (uint256)
+    {
         uint256 supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
-        return supply == 0 ? shares : shares.mulDivDown(asset.totalSupply(), supply);
+        return
+            supply == 0
+                ? shares
+                : shares.mulDivDown(asset.totalSupply(), supply);
     }
 
-    function previewDeposit(uint256 assets) public view virtual returns (uint256) {
+    // Allows an on-chain or off-chain user to simulate the effects of their deposit at the current block, given current on-chain conditions.
+    function previewDeposit(uint256 assets)
+        public
+        view
+        virtual
+        returns (uint256)
+    {
         return convertToShares(assets);
     }
+
+    // Allows an on-chain or off-chain user to simulate the effects of their mint at the current block, given current on-chain conditions.
 
     function previewMint(uint256 shares) public view virtual returns (uint256) {
         uint256 supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
-        return supply == 0 ? shares : shares.mulDivUp(asset.totalSupply(), supply);
+        return
+            supply == 0 ? shares : shares.mulDivUp(asset.totalSupply(), supply);
     }
 
-    function previewWithdraw(uint256 assets) public view virtual returns (uint256) {
+    // Allows an on-chain or off-chain user to simulate the effects of their withdrawal at the current block, given current on-chain conditions.
+    function previewWithdraw(uint256 assets)
+        public
+        view
+        virtual
+        returns (uint256)
+    {
         uint256 supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
-        return supply == 0 ? assets : assets.mulDivUp(supply, asset.totalSupply());
+        return
+            supply == 0 ? assets : assets.mulDivUp(supply, asset.totalSupply());
     }
 
-    function previewRedeem(uint256 shares) public view virtual returns (uint256) {
+    // Allows an on-chain or off-chain user to simulate the effects of their redeemption at the current block, given current on-chain conditions.
+    function previewRedeem(uint256 shares)
+        public
+        view
+        virtual
+        returns (uint256)
+    {
         return convertToAssets(shares);
     }
-
-    /*//////////////////////////////////////////////////////////////
-                     DEPOSIT/WITHDRAWAL LIMIT LOGIC
-    //////////////////////////////////////////////////////////////*/
 
     function maxDeposit(address) public view virtual returns (uint256) {
         return type(uint256).max;
@@ -188,11 +214,11 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
         return balanceOf(owner);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                          INTERNAL HOOKS LOGIC
-    //////////////////////////////////////////////////////////////*/
+    //INTERNAL HOOKS LOGIC
 
     function beforeWithdraw(uint256 assets, uint256 shares) internal virtual {}
 
     function afterDeposit(uint256 assets, uint256 shares) internal virtual {}
+
+    // function earn() public {  }
 }
