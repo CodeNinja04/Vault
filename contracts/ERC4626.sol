@@ -2,6 +2,7 @@
 pragma solidity >=0.8.0;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Lib} from "./utils/ERC20Lib.sol";
+import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
@@ -45,7 +46,8 @@ contract Vault is ERC20Lib , ReentrancyGuard  {
     // deposit underlying asset to the contract and mint same shares as assets
     function deposit(uint256 assets, address receiver)
         
-        external
+        public
+        virtual
         
         returns (uint256 shares)
     {
@@ -69,9 +71,12 @@ contract Vault is ERC20Lib , ReentrancyGuard  {
         virtual
         returns (uint256 assets)
     {
-        assets = previewMint(shares); // No need to check for rounding error, previewMint rounds up.
+        assets = previewMint(shares);
+         // No need to check for rounding error, previewMint rounds up.
+        console.log("previewMint(shares)",previewMint(shares));
 
         // Need to transfer before minting or ERC777s could reenter.
+        IERC20(asset).approve(address(this),assets);
         asset.safeTransferFrom(msg.sender, address(this), assets);
 
         _mint(receiver, shares);
@@ -89,14 +94,21 @@ contract Vault is ERC20Lib , ReentrancyGuard  {
     ) public virtual returns (uint256 shares) {
         shares = previewWithdraw(assets); // No need to check for rounding error, previewWithdraw rounds up.
 
+        console.log(previewWithdraw(assets));
+        // console.log(msg.sender);
+        // console.log(owner);
         if (msg.sender != owner) {
             uint256 allowed = _allowances[owner][msg.sender]; // Saves gas for limited approvals.
-
-            if (allowed != type(uint256).max)
-                _allowances[owner][msg.sender] = allowed - shares;
+            console.log(allowed);
+            if (allowed != type(uint256).max && allowed!=0)
+             _allowances[owner][msg.sender] = allowed - shares;
         }
 
+        
+
         beforeWithdraw(assets, shares);
+
+        
 
         _burn(owner, shares);
 
@@ -114,7 +126,7 @@ contract Vault is ERC20Lib , ReentrancyGuard  {
         if (msg.sender != owner) {
             uint256 allowed = _allowances[owner][msg.sender]; // Saves gas for limited approvals.
 
-            if (allowed != type(uint256).max)
+            if (allowed != type(uint256).max && allowed!=0)
                 _allowances[owner][msg.sender] = allowed - shares;
         }
 

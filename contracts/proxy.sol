@@ -3,9 +3,8 @@ pragma solidity >=0.8.0;
 
 import "@openzeppelin/contracts/proxy/Clones.sol";
 
-import  {Vault} from "./ERC4626.sol";
+import {Vault} from "./ERC4626.sol";
 import {ERC20Lib} from "./utils/ERC20Lib.sol";
-
 
 import "./utils/IERC4626.sol";
 import "hardhat/console.sol";
@@ -13,19 +12,22 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 
-contract factory is  ReentrancyGuard{
-   using SafeERC20 for ERC20Lib;
+import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
+
+contract factory is ReentrancyGuard {
+    using SafeERC20 for ERC20Lib;
     using SafeERC20 for ERC20;
+    using FixedPointMathLib for uint256;
     using Clones for address;
     using Counters for Counters.Counter;
     using Address for address;
     Counters.Counter private pid;
 
     address public vaultImplementation;
+
     constructor(address _vaultImplementation) {
         vaultImplementation = _vaultImplementation;
     }
@@ -34,14 +36,14 @@ contract factory is  ReentrancyGuard{
 
     address[] public allVaults;
 
-
-    event Deposit(
+    event Depositvault(
         address indexed caller,
         uint256 indexed _pid,
         uint256 assets
-      
     );
 
+    // create clones (minimal proxy eip 1167)
+    // it deployes vaults using minimal proxy
     function createVault(
         ERC20 _asset,
         string memory name,
@@ -63,30 +65,85 @@ contract factory is  ReentrancyGuard{
         return clone;
     }
 
+    // used to deposit assets to vauls via factory using _pid
+    function depositVault(
+        uint256 _amount,
+        address receiver,
+        uint256 _pid
+    ) public payable {
+        require(_amount > 0, "amount is less than 0");
 
-function depositVault(uint256 _amount,address receiver, uint256 _pid) public  payable {
+        ERC20(IERC4626(getVault[_pid]).asset()).approve(receiver, _amount);
+        ERC20(IERC4626(getVault[_pid]).asset()).approve(
+            getVault[_pid],
+            _amount
+        );
+        ERC20(IERC4626(getVault[_pid]).asset()).approve(address(this), _amount);
 
-    require(_amount>0 ,"amount is less than 0" );
+        ERC20(IERC4626(getVault[_pid]).asset()).transferFrom(
+            msg.sender,
+            address(this),
+            _amount
+        ); // transfer asset from user to proxy
 
-    ERC20(IERC4626(getVault[_pid]).asset()).approve(receiver,_amount);
-    ERC20(IERC4626(getVault[_pid]).asset()).approve(address(this),_amount);
+        IERC4626((address(getVault[_pid]))).deposit(_amount, receiver); // trnasfer of asset from proxy to vault
+
+        emit Depositvault(msg.sender, _pid, _amount);
+    }
+
+    function withdrawVault(
+        uint256 _amount,
+        address receiver,
+        address owner,
+        uint256 _pid
+    ) public  {
     
-    console.log("asset",IERC4626(getVault[_pid]).asset());
-    console.log("Symbol",IERC4626(getVault[_pid]).symbol());
+    
+    IERC4626((address(getVault[_pid]))).withdraw(_amount, receiver, owner);
 
-    console.log(_amount);
+        
+    }
+
+    function mintVault(
+        uint256 shares,
+        address receiver,
+        uint256 _pid
+    ) public payable {
+        uint256 assets = IERC4626((address(getVault[_pid]))).previewMint(
+            shares
+        );
+
+        console.log(
+            "mint",
+            IERC4626((address(getVault[_pid]))).previewMint(shares)
+        );
+
+        ERC20(IERC4626(getVault[_pid]).asset()).approve(receiver, shares);
+        ERC20(IERC4626(getVault[_pid]).asset()).approve(getVault[_pid], assets);
+       
+        uint256 all = ERC20(IERC4626(getVault[_pid]).asset()).allowance(
+            msg.sender,
+            getVault[_pid]
+        );
+        // console.log(all);
+        ERC20(IERC4626(getVault[_pid]).asset()).transferFrom(
+            msg.sender,
+            address(this),
+            assets
+        );
+       
+
+        IERC4626((address(getVault[_pid]))).mint(shares, receiver);
+    }
 
 
-   console.log(IERC4626((address(getVault[_pid]))).deposit(_amount,receiver));
 
- 
-    emit Deposit(msg.sender,_pid,_amount);
+function redeemVault(  uint256 _amount,
+        address receiver,
+        address owner,uint256 _pid) public {
 
+             IERC4626((address(getVault[_pid]))).withdraw(_amount, receiver, owner);
 
-}
-    // deposit(amount,pid) {  getVault(pid).deposit(amount)  }
-    //
-    //
-
-     receive() external payable {}
+        }
+    receive() external payable {}
 }
